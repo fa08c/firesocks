@@ -8,7 +8,7 @@ import relay.WSWorker
 object Application extends Controller {
 
   def index = Action {
-    Redirect("http://www.google.com")
+    Redirect("http://www.yahoo.com")
   }
 
   def worker = WebSocket.acceptWithActor[Array[Byte], Array[Byte]] {

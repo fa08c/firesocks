@@ -71,8 +71,13 @@ object WSWorker {
   def mkActor(conn: WebSocket, codec: Codec)
              (implicit context: ActorContext): ActorRef = {
     val clazz = classOf[WSWorker]
-    val name = mkActorName(clazz, ":", conn.getRemoteSocketAddress)
+    val name = if(conn.getRemoteSocketAddress eq null) {
+      // For some unknown reason, conn.getRemoteSocketAddress could be null!
+      mkActorName(clazz, ":", conn.hashCode())
+    } else {
+      mkActorName(clazz, ":", conn.getRemoteSocketAddress)
+    }
     val p = Props.create(clazz, conn, codec)
-    context.actorOf(p, name)
+    context.watch(context.actorOf(p, name))
   }
 }

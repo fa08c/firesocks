@@ -55,12 +55,12 @@ class Broker(client: ActorRef,
         case Request1(ver, cmd, dst) if ver == Socks.VER =>
           cmd match {
             case _ @ Socks.CMD_CONNECT =>
-              log.info("Processing CONNECT to {}", dst)
-
               server match {
                 case Left(addr) =>
+                  log.info("Processing CONNECT to {} via {}", dst, addr)
                   TCPRelay.mkActor(Local(client, forwarding = true), addr, codec)
                 case Right(uri) =>
+                  log.info("Processing CONNECT to {} via {}", dst, uri)
                   WSRelay.mkActor(Local(client, forwarding = true), uri, codec)
               }
               context become connectingTCP(bytes)
@@ -83,6 +83,8 @@ class Broker(client: ActorRef,
 
   private def connectingTCP(req: ByteString): Receive = {
     case msg: Tcp.Register =>
+      log.info("Sending initial request to remote proxy server.")
+
       val relay = msg.handler
       relay.tell(Tcp.Received(req), client)
 

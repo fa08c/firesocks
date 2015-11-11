@@ -1,7 +1,8 @@
 package relay
 
-import akka.actor.{Terminated, Props, ActorRef, Actor}
+import akka.actor._
 import akka.io.Tcp
+import akka.io.Tcp.ConfirmedClose
 import akka.util.ByteString
 import org.firesocks.app.{Config, Parser}
 import org.firesocks.codec.{Encoded, Plain, Codec}
@@ -49,11 +50,19 @@ class WSWorker(instigator: ActorRef, codec: Codec) extends Actor with Logger {
     case msg: Tcp.Write =>
       instigator ! msg.data.toArray
       sender() ! Ack
+
+    case msg@ ConfirmedClose =>
+      instigator ! PoisonPill
+      sender() ! msg.event
   }
 
   override def unhandled(message: Any): Unit = {
-    log.warning("Unhandled '{}' from {}", message, sender())
-    super.unhandled(message)
+    message match {
+      case msg: Terminated => super.unhandled(message)
+      case _ =>
+        log.warning("Stopping as of unhandled '{}' from {}", message, sender())
+        context stop self
+    }
   }
 }
 
