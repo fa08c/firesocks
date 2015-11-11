@@ -110,7 +110,11 @@ class Broker(client: ActorRef,
         log.info("Closing before connected.")
         context stop self
 
-      case _ => super.unhandled(message)
+      case msg: Terminated => super.unhandled(message)
+
+      case _ =>
+        log.info("Stopping as of unhandled {} from {}", message, sender())
+        context stop self
     }
   }
 }

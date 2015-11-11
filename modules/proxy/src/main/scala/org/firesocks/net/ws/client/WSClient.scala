@@ -3,7 +3,7 @@ package org.firesocks.net.ws.client
 import java.net.URI
 import java.nio.ByteBuffer
 
-import akka.actor.{Actor, Terminated}
+import akka.actor.Actor
 import akka.util.ByteString
 import org.firesocks.util.Logger
 import org.java_websocket.client.WebSocketClient

@@ -8,10 +8,12 @@ import relay.WSWorker
 object Application extends Controller {
 
   def index = Action {
-    Redirect("http://www.yahoo.com")
+    Ok("<h3>It works!</h3>")
   }
 
   def worker = WebSocket.acceptWithActor[Array[Byte], Array[Byte]] {
-    req => out => WSWorker.mkProps(out)
+    req => out =>
+      Logger.info(s"Incoming connection from ${req.remoteAddress}")
+      WSWorker.mkProps(out)
   }
 }
