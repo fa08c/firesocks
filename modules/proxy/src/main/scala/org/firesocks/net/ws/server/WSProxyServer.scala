@@ -2,9 +2,8 @@ package org.firesocks.net.ws.server
 
 import org.java_websocket.WebSocket
 
-import akka.actor.{Props, ActorSystem, Terminated, ActorRef}
+import akka.actor._
 import org.firesocks.app.Config
-import org.firesocks.net.Forwarded
 
 import org.firesocks.lang._
 
@@ -22,7 +21,8 @@ class WSProxyServer(config: Config) extends WSServer(config.bind) {
       connsToWorkers.get(conn).foreach { context.stop }
 
     case WSOpen(conn, handshake) =>
-      log.info("Client connecting {}", handshake.getResourceDescriptor)
+      log.info("Client connecting {}{}",
+        handshake.getFieldValue("Host"), handshake.getResourceDescriptor)
 
       val worker = WSWorker.mkActor(conn, config.codec().inverse)
       connsToWorkers += conn -> worker
@@ -31,7 +31,7 @@ class WSProxyServer(config: Config) extends WSServer(config.bind) {
     case WSStringMessage(conn, message) =>
       connsToWorkers.get(conn) match {
         case Some(worker) =>
-          worker.forward(Forwarded(message, self))
+          worker.forward(message)
         case None =>
           log.warning("Received from dangling connection, closing.")
           conn.close()
@@ -40,27 +40,20 @@ class WSProxyServer(config: Config) extends WSServer(config.bind) {
     case WSByteMessage(conn, message) =>
       connsToWorkers.get(conn) match {
         case Some(worker) =>
-          worker.forward(Forwarded(message, self))
+          worker.forward(message)
         case None =>
           log.warning("Received from dangling connection, closing.")
           conn.close()
       }
 
-    case WSClose(conn, code, reason, remote) =>
+    case msg @ WSClose(conn, code, reason, remote) =>
       if(remote) {
         log.info("Client closed: {} ({})", reason, code)
       } else {
         log.info("Connection closed: {} ({})", reason, code)
       }
 
-      if(connsToWorkers.contains(conn)) {
-        val worker = connsToWorkers(conn)
-        workersToConns -= worker
-        connsToWorkers -= conn
-
-        context unwatch worker
-        context stop worker
-      }
+      connsToWorkers.get(conn).foreach {_ ! msg}
 
     case Terminated(actor) if actor != self =>
       log.info("Worker {} terminated.", actor.path.name)

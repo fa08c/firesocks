@@ -3,7 +3,7 @@ package org.firesocks.net.tcp
 import java.net.InetSocketAddress
 
 import org.firesocks.codec.{Encoded, Plain, Codec}
-import org.firesocks.net.Forwarded
+import org.firesocks.net.{Local, RelayCloseGuard}
 import org.firesocks.util.Logger
 
 import akka.actor.{ActorContext, Actor, ActorRef, Props}
@@ -11,13 +11,16 @@ import akka.io.{IO,Tcp}
 
 import org.firesocks.lang._
 
-class TCPRelay(instigator: ActorRef,
-               remoteAddr: InetSocketAddress,
-               codec: Codec) extends Actor with Logger {
+class TCPRelay(local: Local, remoteAddr: InetSocketAddress, codec: Codec)
+  extends Actor with Logger with RelayCloseGuard {
   import context.system
   import Tcp._
 
   IO(Tcp) ! Connect(remoteAddr)
+
+  override def postStop(): Unit = {
+    log.info("Relay closed.")
+  }
 
   override def receive: Receive = {
     case Connected(peer, _) =>
@@ -25,7 +28,12 @@ class TCPRelay(instigator: ActorRef,
 
       val remote = sender()
       remote ! Register(self)
-      instigator ! Register(self)
+
+      if(local.forwarding) {
+        context.parent ! Register(self)
+      } else {
+        local.conn ! Register(self, keepOpenOnPeerClosed = true)
+      }
 
       context become connected(remote)
 
@@ -35,31 +43,34 @@ class TCPRelay(instigator: ActorRef,
   }
 
   private def connected(remote: ActorRef): Receive = {
-    case Forwarded(Received(bytes), via) if via == instigator =>
-      remote ?! Write(codec.encode(Plain(bytes)).bytes, Ack)
-
-    case Received(bytes) if sender() == instigator =>
+    case Received(bytes) if sender() == local.conn =>
       remote ?! Write(codec.encode(Plain(bytes)).bytes, Ack)
 
     case Received(bytes) if sender() == remote =>
-      instigator ?! Write(codec.decode(Encoded(bytes)).bytes, Ack)
+      local.conn ?! Write(codec.decode(Encoded(bytes)).bytes, Ack)
 
-    case PeerClosed if sender() == instigator =>
-      log.info("Instigator peer closed.")
-      context stop self
+    case (PeerClosed | ConfirmedClosed) if sender() == local.conn =>
+      log.info("Local peer closed.")
+      setLocalClosed()
+      stopIfFullyClosedElse {
+        remote ?! ConfirmedClose
+      }
 
-    case PeerClosed if sender() == remote =>
+    case (PeerClosed | ConfirmedClosed) if sender() == remote =>
       log.info("Remote peer closed.")
-      context stop self
+      setRemoteClosed()
+      stopIfFullyClosedElse {
+        local.conn ?! ConfirmedClose
+      }
   }
 }
 
 object TCPRelay {
-  def mkActor(instigator: ActorRef, remoteAddr: InetSocketAddress, codec: Codec)
+  def mkActor(local: Local, remoteAddr: InetSocketAddress, codec: Codec)
              (implicit context: ActorContext): ActorRef = {
     val clazz = classOf[TCPRelay]
-    val name = mkActorName(clazz, ":", instigator, "~", remoteAddr)
-    val p = Props.create(clazz, instigator, remoteAddr, codec)
-    context.actorOf(p, name)
+    val name = mkActorName(clazz, ":", local.conn, "~", remoteAddr)
+    val p = Props.create(clazz, local, remoteAddr, codec)
+    context.watch(context.actorOf(p, name))
   }
 }

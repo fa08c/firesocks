@@ -11,7 +11,6 @@ import org.firesocks.app.Config
 import org.firesocks.codec.Codec
 import org.firesocks.lang._
 import org.firesocks.net._
-import org.firesocks.net.Forwarded
 import org.firesocks.net.tcp.{Ack, TCPRelay}
 import org.firesocks.net.ws.client.WSRelay
 import org.firesocks.util.Logger
@@ -22,6 +21,10 @@ class Broker(client: ActorRef,
              bndAddr: InetAddress) extends Actor with Logger {
 
   private implicit val TCP_TIMEOUT = tcp.TIMEOUT
+
+  override def postStop(): Unit = {
+    log.info("Broker stopped.")
+  }
 
   override def receive: Receive = stage0
 
@@ -55,8 +58,10 @@ class Broker(client: ActorRef,
               log.info("Processing CONNECT to {}", dst)
 
               server match {
-                case Left(addr) => TCPRelay.mkActor(self, addr, codec)
-                case Right(uri) => WSRelay.mkActor(self, uri, codec)
+                case Left(addr) =>
+                  TCPRelay.mkActor(Local(client, forwarding = true), addr, codec)
+                case Right(uri) =>
+                  WSRelay.mkActor(Local(client, forwarding = true), uri, codec)
               }
               context become connectingTCP(bytes)
 
@@ -79,7 +84,7 @@ class Broker(client: ActorRef,
   private def connectingTCP(req: ByteString): Receive = {
     case msg: Tcp.Register =>
       val relay = msg.handler
-      relay.tell(Forwarded(Tcp.Received(req), self), client)
+      relay.tell(Tcp.Received(req), client)
 
       // NB The server will be responsible to reply to the request0, because
       //    not until then the server will be ready.
@@ -91,22 +96,19 @@ class Broker(client: ActorRef,
   }
 
   private def connectedTCP(relay: ActorRef): Receive = {
-    case msg: Tcp.Received => relay.forward(Forwarded(msg, self))
-    case msg: Tcp.Write => client.forward(msg)
+    case Terminated(actor) if relay == actor =>
+      context stop self
+    case msg: Tcp.Received => relay.forward(msg)
+    case msg @ (Tcp.PeerClosed | Tcp.ConfirmedClosed) => relay.forward(msg)
   }
 
   override def unhandled(message: Any): Unit = {
     message match {
-      case Terminated(actor) =>
-        log.info("Closing on termination of {}.", actor)
-        context stop self
-
       case Tcp.PeerClosed =>
-        log.info("Closing on termination of client peer.")
+        log.info("Closing before connected.")
         context stop self
 
-      case _ =>
-        super.unhandled(message)
+      case _ => super.unhandled(message)
     }
   }
 }

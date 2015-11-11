@@ -7,5 +7,8 @@ import akka.event.LogSource._
 trait Logger {
   self: Actor =>
 
-  lazy val log = Logging(context.system.eventStream, getClass)
+  lazy val log = Logging(
+    context.system.eventStream,
+    s"${getClass.getSimpleName}-${this.hashCode}"
+  )
 }

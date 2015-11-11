@@ -13,6 +13,7 @@ import org.java_websocket.handshake.ServerHandshake
 abstract class WSClient(uri: URI)
   extends WebSocketClient(uri, new Draft_17()) with Actor with Logger {
 
+  @volatile
   private var terminated = false
 
   context watch self

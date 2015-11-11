@@ -27,7 +27,7 @@ class Proxy(config: Config) extends Actor with Logger {
     case Connected(client, _) =>
       log.info("Client {} connected.", client)
       val broker = Broker.mkActor(sender(), config)
-      sender() ! Register(broker)
+      sender() ! Register(broker, keepOpenOnPeerClosed = true)
   }
 }
 

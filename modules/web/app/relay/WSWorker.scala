@@ -25,7 +25,7 @@ class WSWorker(instigator: ActorRef, codec: Codec) extends Actor with Logger {
         case Request1(ver, cmd, dst)
           if ver == Socks.VER && cmd == Socks.CMD_CONNECT =>
           log.info("Processing CONNECT to {}", dst)
-          TCPRelay.mkActor(self, dst, codec.inverse)
+          TCPRelay.mkActor(Local(self), dst, codec.inverse)
           context become connectingTCP
       }
   }
@@ -44,7 +44,7 @@ class WSWorker(instigator: ActorRef, codec: Codec) extends Actor with Logger {
       context stop self
 
     case bytes: Array[Byte] =>
-      relay.forward(Forwarded(Tcp.Received(ByteString(bytes)), self))
+      relay ! Tcp.Received(ByteString(bytes))
 
     case msg: Tcp.Write =>
       instigator ! msg.data.toArray
